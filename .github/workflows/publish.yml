@@ -1,0 +1,109 @@
+name: Publish APT repository
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish.yml'
+      - 'config/**'
+      - 'scripts/**'
+      - 'static/**'
+      - 'pairmux-archive-keyring.asc'
+      - 'pairmux-archive-keyring.pgp'
+      - 'pairmux-archive-keyring.fingerprint'
+      - 'pairmux-archive-signing-subkey.fingerprint'
+      - 'LICENSE'
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: apt-signing
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install repository tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-utils gnupg shellcheck
+      - name: Lint repository scripts
+        run: |
+          bash -n scripts/*.sh
+          shellcheck scripts/*.sh
+      - name: Build the unsigned repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REPOSITORY: treeleaves30760/pairmux
+        run: ./scripts/build-repository.sh
+      - name: Sign and verify the repository
+        env:
+          APT_GPG_PRIVATE_KEY_B64: ${{ secrets.APT_GPG_PRIVATE_KEY_B64 }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          test -n "$APT_GPG_PRIVATE_KEY_B64"
+          test -n "$APT_GPG_PASSPHRASE"
+          gnupg_home="$RUNNER_TEMP/gnupg"
+          passphrase_file="$RUNNER_TEMP/apt-signing-passphrase"
+          cleanup() {
+            rm -rf -- "$gnupg_home" "$passphrase_file"
+          }
+          trap cleanup EXIT
+          install -d -m 0700 "$gnupg_home"
+          install -m 0600 /dev/null "$passphrase_file"
+          printf '%s' "$APT_GPG_PRIVATE_KEY_B64" | base64 --decode | \
+            GNUPGHOME="$gnupg_home" gpg --batch --import
+          printf '%s' "$APT_GPG_PASSPHRASE" > "$passphrase_file"
+
+          primary_fingerprint=$(tr -d '[:space:]' < pairmux-archive-keyring.fingerprint)
+          signing_fingerprint=$(tr -d '[:space:]' < pairmux-archive-signing-subkey.fingerprint)
+          GNUPGHOME="$gnupg_home" gpg --batch --list-secret-keys "$primary_fingerprint" >/dev/null
+          GNUPGHOME="$gnupg_home" gpg --batch --list-secret-keys "$signing_fingerprint" >/dev/null
+
+          GNUPGHOME="$gnupg_home" gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-file "$passphrase_file" \
+            --local-user "${signing_fingerprint}!" \
+            --digest-algo SHA256 \
+            --clearsign \
+            --output public/dists/stable/InRelease \
+            public/dists/stable/Release
+          GNUPGHOME="$gnupg_home" gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-file "$passphrase_file" \
+            --local-user "${signing_fingerprint}!" \
+            --digest-algo SHA256 \
+            --armor \
+            --detach-sign \
+            --output public/dists/stable/Release.gpg \
+            public/dists/stable/Release
+
+          ./scripts/verify-repository.sh
+          cleanup
+          trap - EXIT
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
