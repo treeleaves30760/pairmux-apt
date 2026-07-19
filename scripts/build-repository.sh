@@ -15,7 +15,7 @@ die() {
   exit 1
 }
 
-for command in apt-ftparchive curl dpkg-deb find gpg gzip jq sha256sum sha512sum touch; do
+for command in apt-ftparchive curl dpkg-deb find gpg gzip jq sha256sum sha512sum; do
   command -v "$command" >/dev/null || die "required command not found: $command"
 done
 
@@ -25,7 +25,6 @@ for path in \
   "$ROOT_DIR/pairmux-archive-keyring.fingerprint" \
   "$ROOT_DIR/pairmux-archive-signing-subkey.fingerprint" \
   "$ROOT_DIR/config/keyring-version" \
-  "$ROOT_DIR/config/keyring-source-date-epoch" \
   "$ROOT_DIR/config/keyring-package.sha256"
 do
   [[ -f "$path" ]] || die "missing repository input: $path"
@@ -148,42 +147,33 @@ download_asset() {
   seen_assets["$expected_version:$expected_arch"]=1
 }
 
-build_keyring_package() {
-  local version source_date_epoch expected_digest actual_digest package_root package_path
+install_keyring_package() {
+  local version expected_digest actual_digest source_path package_path extract_dir
   version=$(tr -d '[:space:]' < "$ROOT_DIR/config/keyring-version")
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'invalid keyring package version'
-  source_date_epoch=$(tr -d '[:space:]' < "$ROOT_DIR/config/keyring-source-date-epoch")
-  [[ "$source_date_epoch" =~ ^[0-9]{10}$ ]] || die 'invalid keyring SOURCE_DATE_EPOCH'
   expected_digest=$(tr -d '[:space:]' < "$ROOT_DIR/config/keyring-package.sha256")
   [[ "$expected_digest" =~ ^[0-9a-f]{64}$ ]] || die 'invalid pinned keyring package digest'
-  package_root="$tmp_dir/keyring-package"
+  source_path="$ROOT_DIR/package/pairmux-archive-keyring_${version}_all.deb"
   package_path="$POOL_DIR/pairmux-archive-keyring_${version}_all.deb"
-
-  install -d -m 0755 \
-    "$package_root/DEBIAN" \
-    "$package_root/usr/share/keyrings" \
-    "$package_root/usr/share/doc/pairmux-archive-keyring"
-  printf '%s\n' \
-    'Package: pairmux-archive-keyring' \
-    "Version: $version" \
-    'Section: misc' \
-    'Priority: optional' \
-    'Architecture: all' \
-    'Maintainer: treeleaves30760 <treeleaves30760.ai@gmail.com>' \
-    'Description: OpenPGP archive key for the pairmux APT repository' \
-    ' This package distributes the public key used to authenticate pairmux' \
-    ' repository metadata.' \
-    > "$package_root/DEBIAN/control"
-  install -m 0644 "$ROOT_DIR/pairmux-archive-keyring.pgp" \
-    "$package_root/usr/share/keyrings/pairmux-archive-keyring.pgp"
-  install -m 0644 "$ROOT_DIR/LICENSE" \
-    "$package_root/usr/share/doc/pairmux-archive-keyring/copyright"
-  find "$package_root" -exec touch -h --date="@$source_date_epoch" {} +
-  SOURCE_DATE_EPOCH="$source_date_epoch" \
-    dpkg-deb --build --root-owner-group "$package_root" "$package_path" >/dev/null
-  actual_digest=$(sha256sum "$package_path" | awk '{print $1}')
+  [[ -f "$source_path" ]] || die "missing immutable keyring package: $source_path"
+  actual_digest=$(sha256sum "$source_path" | awk '{print $1}')
   [[ "$actual_digest" == "$expected_digest" ]] || \
-    die "keyring package digest changed; bump its version and pin $actual_digest"
+    die 'immutable keyring package does not match its pinned digest'
+  [[ $(dpkg-deb --field "$source_path" Package) == pairmux-archive-keyring ]] || \
+    die 'wrong keyring package name'
+  [[ $(dpkg-deb --field "$source_path" Version) == "$version" ]] || \
+    die 'wrong keyring package version'
+  [[ $(dpkg-deb --field "$source_path" Architecture) == all ]] || \
+    die 'wrong keyring package architecture'
+  extract_dir="$tmp_dir/keyring-input"
+  dpkg-deb --extract "$source_path" "$extract_dir"
+  cmp -s "$ROOT_DIR/pairmux-archive-keyring.pgp" \
+    "$extract_dir/usr/share/keyrings/pairmux-archive-keyring.pgp" || \
+    die 'keyring package contains the wrong public key'
+  cmp -s "$ROOT_DIR/LICENSE" \
+    "$extract_dir/usr/share/doc/pairmux-archive-keyring/copyright" || \
+    die 'keyring package contains the wrong copyright file'
+  install -m 0644 "$source_path" "$package_path"
 }
 
 page=1
@@ -234,7 +224,7 @@ for version in "${!stable_versions[@]}"; do
   done
 done
 
-build_keyring_package
+install_keyring_package
 
 for arch in amd64 arm64; do
   binary_dir="$DIST_DIR/main/binary-$arch"

@@ -133,6 +133,7 @@ done < "$history"
 
 package_count=0
 keyring_version=$(tr -d '[:space:]' < "$ROOT_DIR/config/keyring-version")
+keyring_digest=$(tr -d '[:space:]' < "$ROOT_DIR/config/keyring-package.sha256")
 for arch in amd64 arm64; do
   binary_dir="$DIST_DIR/main/binary-$arch"
   packages="$binary_dir/Packages"
@@ -207,8 +208,11 @@ for arch in amd64 arm64; do
       pairmux-archive-keyring)
         [[ "$indexed_arch" == all ]] || die 'keyring package is not architecture all'
         [[ "$indexed_version" == "$keyring_version" ]] || die 'wrong keyring package version'
+        [[ "$indexed_sha256" == "$keyring_digest" ]] || die 'wrong keyring package digest'
         [[ "$relative_path" == "pool/main/p/pairmux/pairmux-archive-keyring_${keyring_version}_all.deb" ]] || \
           die "unexpected keyring package filename: $relative_path"
+        cmp -s "$ROOT_DIR/package/pairmux-archive-keyring_${keyring_version}_all.deb" \
+          "$package" || die 'published keyring package differs from the immutable artifact'
         extract_dir="$tmp_dir/keyring-$arch"
         dpkg-deb --extract "$package" "$extract_dir"
         cmp -s "$ROOT_DIR/pairmux-archive-keyring.pgp" \

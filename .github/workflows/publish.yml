@@ -12,6 +12,7 @@ on:
       - 'pairmux-archive-keyring.pgp'
       - 'pairmux-archive-keyring.fingerprint'
       - 'pairmux-archive-signing-subkey.fingerprint'
+      - 'package/**'
       - 'LICENSE'
   schedule:
     - cron: '23 4 * * *'

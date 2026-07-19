@@ -63,6 +63,9 @@ a two-deployment operation:
 3. Re-export the minimal public key and encrypted recovery copies. Bump
    `config/keyring-version`, reset `config/keyring-source-date-epoch`, and pin
    the new deterministic package digest in `config/keyring-package.sha256`.
+   Run `scripts/build-keyring-package.sh --write` in the pinned Ubuntu 24.04
+   amd64 environment and commit the resulting immutable `.deb` under
+   `package/`. Never replace bytes under an existing version and filename.
 4. Deployment A must still be signed by the old subkey. Publish `.pgp`, `.asc`
    and `pairmux-archive-keyring` containing both old and new public subkeys.
    Confirm that a client with the old keyring can run `apt-get update` and
@@ -96,9 +99,11 @@ primary expires in 2031.
 
 ## Verification
 
-Before publication, build twice on Ubuntu 24.04 and confirm that
-`pairmux-archive-keyring_1.0.0_all.deb` has the pinned SHA-256 on both runs.
-Sign into a temporary `GNUPGHOME`, then run `scripts/verify-repository.sh`.
+Before publication, run `scripts/build-keyring-package.sh --check` twice in an
+Ubuntu 24.04 amd64 container and confirm the committed keyring `.deb` has the
+pinned SHA-256 on both runs. Repository publication validates and copies that
+immutable artifact instead of rebuilding it on a changing runner. Sign into a
+temporary `GNUPGHOME`, then run `scripts/verify-repository.sh`.
 
 Client verification covers Ubuntu 22.04 and 24.04 on both amd64 and arm64:
 

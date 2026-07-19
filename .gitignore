@@ -1,3 +1,5 @@
 public/
 *.deb
+!package/
+!package/*.deb
 *.tmp
