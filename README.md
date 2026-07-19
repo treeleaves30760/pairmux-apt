@@ -58,7 +58,9 @@ FC58 F25C 9526 AE4D 03AA  73A1 543A D39E 6FFA B8AA
 ```
 
 The same value is published in
-[`pairmux-archive-keyring.fingerprint`](./pairmux-archive-keyring.fingerprint).
+[`pairmux-archive-keyring.fingerprint`](./pairmux-archive-keyring.fingerprint)
+and independently in the main project's
+[`v0.1.0` release notes](https://github.com/treeleaves30760/pairmux/releases/tag/v0.1.0).
 
 ## Publication
 
