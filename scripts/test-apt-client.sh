@@ -62,7 +62,10 @@ Pin: origin $repository_host
 Pin-Priority: 100
 EOF
 
-apt-get update -o Debug::Acquire::http=true 2>&1 | tee "$tmp_dir/apt-update.log"
+apt-get update \
+  -o Debug::Acquire::http=true \
+  -o Debug::Acquire::https=true \
+  2>&1 | tee "$tmp_dir/apt-update.log"
 grep -Eq '/by-hash/(SHA256/[0-9a-f]{64}|SHA512/[0-9a-f]{128})' \
   "$tmp_dir/apt-update.log" || {
   printf 'error: APT did not acquire the package index by hash\n' >&2
